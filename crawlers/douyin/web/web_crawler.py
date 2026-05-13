@@ -173,6 +173,117 @@ class DouyinWebCrawler:
             response = await crawler.fetch_get_json(endpoint)
         return response
 
+    # 通过合集接口获取视频真实播放量
+    # 抖音已从所有公开接口移除 play_count，但合集(/aweme/v1/web/mix/aweme/)接口仍返回真实播放量
+    # 前提：视频必须属于某个合集(mix)，且视频详情接口能返回 mix_info.mix_id
+    async def fetch_video_play_count_via_mix(self, aweme_id: str):
+        """
+        通过合集接口获取视频的真实播放量统计数据。
+        原理：抖音合集(/aweme/v1/web/mix/aweme/)接口未屏蔽 play_count，可返回真实播放量。
+        步骤：
+          1. 获取视频详情 → 提取 mix_info.mix_id 和 mix_info.current_episode
+          2. 通过合集接口分页查找目标视频
+        限制：仅对属于合集(mix)的视频有效
+        """
+        # 步骤1: 获取视频详情，提取 mix_id
+        detail_response = await self.fetch_one_video(aweme_id)
+        aweme_detail = detail_response.get("aweme_detail") if detail_response else None
+        if not aweme_detail:
+            raise ValueError(f"无法获取视频详情: aweme_id={aweme_id}")
+
+        mix_info = aweme_detail.get("mix_info")
+        if not mix_info or not mix_info.get("mix_id"):
+            raise ValueError(f"视频 {aweme_id} 不属于任何合集(mix)，无法通过合集接口获取播放量")
+
+        mix_id = mix_info["mix_id"]
+        # current_episode 是视频在合集中的序号（从1开始），cursor = current_episode - 1
+        current_episode = mix_info.get("current_episode", 0)
+
+        # 步骤2: 通过合集接口分页查找目标视频（真实 play_count）
+        kwargs = await self.get_douyin_headers()
+        # 合集接口不需要 a_bogus 签名也能返回数据
+        headers = {
+            **kwargs["headers"],
+            "Accept": "application/json, text/plain, */*",
+            "Referer": f"https://www.douyin.com/video/{aweme_id}",
+        }
+
+        import httpx
+        page_size = 20
+        # 从 current_episode 前推算起始 cursor，尽量减少翻页次数
+        # current_episode 从1开始计数，cursor 是0-based偏移
+        if current_episode and current_episode > page_size:
+            start_cursor = current_episode - page_size  # 从目标视频前一页开始
+        else:
+            start_cursor = 0
+
+        base_url = DouyinAPIEndpoints.MIX_AWEME
+
+        async with httpx.AsyncClient(
+            headers=headers,
+            proxies=kwargs.get("proxies", {}),
+            follow_redirects=True,
+            timeout=30
+        ) as client:
+            # 最多搜索 60 页（cover 1200 个视频位置）
+            max_pages = 60
+            cursor = start_cursor
+            searched_forward = False
+
+            for page_idx in range(max_pages):
+                params = {
+                    "mix_id": mix_id,
+                    "cursor": cursor,
+                    "count": page_size,
+                    "device_platform": "webapp",
+                    "aid": "6383",
+                    "channel": "channel_pc_web",
+                    "version_code": "170400",
+                    "version_name": "17.4.0",
+                    "cookie_enabled": "true",
+                    "screen_width": "1280",
+                    "screen_height": "800",
+                    "browser_language": "zh-CN",
+                    "browser_platform": "Win32",
+                    "browser_name": "Chrome",
+                    "browser_version": "126.0.0.0",
+                    "os_name": "Windows",
+                    "os_version": "10",
+                    "platform": "PC",
+                }
+                r = await client.get(base_url, params=params)
+                if r.status_code != 200 or not r.content:
+                    break
+
+                data = r.json()
+                aweme_list = data.get("aweme_list", [])
+
+                for aweme in aweme_list:
+                    if aweme.get("aweme_id") == aweme_id:
+                        stats = aweme.get("statistics", {})
+                        return {
+                            "aweme_id": aweme_id,
+                            "mix_id": mix_id,
+                            "statistics": stats,
+                            "play_count": stats.get("play_count", 0),
+                        }
+
+                has_more = data.get("has_more", 0)
+                if not has_more:
+                    # 本方向没有更多了
+                    if not searched_forward and start_cursor > 0:
+                        # 如果从非0 cursor开始，且向后已搜完没找到，从头再搜
+                        cursor = 0
+                        searched_forward = True
+                        continue
+                    break
+
+                cursor += page_size
+
+        raise ValueError(
+            f"视频 {aweme_id} 未在合集 {mix_id} 中找到（已搜索 {max_pages} 页）"
+        )
+
     # 获取用户直播流数据
     async def fetch_user_live_videos(self, webcast_id: str, room_id_str=""):
         kwargs = await self.get_douyin_headers()

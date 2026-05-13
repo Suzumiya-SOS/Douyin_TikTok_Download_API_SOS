@@ -972,6 +972,56 @@ async def get_all_aweme_id(request: Request,
         raise HTTPException(status_code=status_code, detail=detail.dict())
 
 
+# 通过合集接口获取视频真实播放量
+@router.get(
+    "/fetch_video_play_count_via_mix",
+    response_model=ResponseModel,
+    summary="通过合集接口获取视频真实播放量/Get real video play count via mix API",
+)
+async def fetch_video_play_count_via_mix(
+    request: Request,
+    aweme_id: str = Query(
+        ..., example="7619222887555239206", description="作品id/Video id"
+    ),
+):
+    """
+    # [中文]
+    ### 用途:
+    - 通过合集(mix/系列)接口获取视频真实播放量
+    - 抖音已从常规视频详情接口中屏蔽 play_count 字段(返回0)，但合集列表接口仍返回真实播放量
+    ### 参数:
+    - aweme_id: 作品id
+    ### 返回:
+    - 视频真实统计数据（包含 play_count、digg_count、comment_count、share_count 等）
+    ### 注意:
+    - 仅适用于属于合集(mix/系列)的视频，不属于合集的视频将返回错误
+
+    # [English]
+    ### Purpose:
+    - Get real video play count via the mix/series listing API
+    - Douyin has removed play_count from individual video detail endpoints (returns 0), but the mix listing API still returns real play counts
+    ### Parameters:
+    - aweme_id: Video id
+    ### Returns:
+    - Real video statistics (play_count, digg_count, comment_count, share_count, etc.)
+    ### Note:
+    - Only works for videos that belong to a mix/series; videos not in a mix will return an error
+    # [示例/Example]
+    aweme_id = "7619222887555239206"
+    """
+    try:
+        data = await DouyinWebCrawler.fetch_video_play_count_via_mix(aweme_id)
+        return ResponseModel(code=200, router=request.url.path, data=data)
+    except ValueError as e:
+        status_code = 404
+        detail = ErrorResponseModel(code=status_code, router=request.url.path, params=dict(request.query_params))
+        raise HTTPException(status_code=status_code, detail=detail.dict())
+    except Exception as e:
+        status_code = 400
+        detail = ErrorResponseModel(code=status_code, router=request.url.path, params=dict(request.query_params))
+        raise HTTPException(status_code=status_code, detail=detail.dict())
+
+
 # 提取列表直播间号
 @router.get("/get_webcast_id",
             response_model=ResponseModel,
