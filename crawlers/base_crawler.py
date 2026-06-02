@@ -167,7 +167,7 @@ class BaseCrawler:
                     "获取数据失败。状态码: {0}".format(response.status_code)
                 )
             else:
-                logger.error("无效响应类型。响应类型: {0}".format(type(response)))
+                logger.warning("上游响应为空/无效（通常是抖音风控间歇限流，会自动跳过）: {0}".format(type(response)))
 
             raise APIResponseError("获取数据失败")
 

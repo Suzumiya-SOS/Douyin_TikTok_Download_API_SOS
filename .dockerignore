@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[codz]
+.venv/
+venv/
+env/
+
+# 日志和下载文件（运行时挂载，不打包进镜像）
+logs/
+download/
+
+# Git
+.git/
+.gitignore
+
+# 文档
+*.md
+LICENSE
+Screenshots/
+
+# 脚本（非运行时必需）
+bash/
+temp_*.py
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 其他
+Procfile

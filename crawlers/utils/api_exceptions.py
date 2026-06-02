@@ -38,9 +38,8 @@ class APIError(Exception):
 
     def __init__(self, status_code=None):
         self.status_code = status_code
-        print(
-            "程序出现异常，请检查错误信息。"
-        )
+        # 不再在异常构造时 print（旧调试残留），避免上游间歇空响应时刷屏。
+        # 真正需要时由调用方/日志记录处理。
 
     def display_error(self):
         """显示错误信息和状态码（如果有的话）"""
