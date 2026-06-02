@@ -323,6 +323,105 @@ async def fetch_user_live_videos_by_room_id(request: Request,
         raise HTTPException(status_code=status_code, detail=detail.dict())
 
 
+@router.get("/fetch_live_partition_rooms",
+            response_model=ResponseModel,
+            summary="获取直播分区房间列表/Get live rooms by partition")
+async def fetch_live_partition_rooms(request: Request,
+                                     partition: str = Query(default="",
+                                                            example="1010402",
+                                                            description="直播标签/分区ID，留空=推荐/综合直播间，例如彩虹六号为1010402"),
+                                     limit: int = Query(default=30, ge=1, le=150,
+                                                        description="总抓取数量，最大150"),
+                                     offset: int = Query(default=0, ge=0,
+                                                         description="起始偏移"),
+                                     page_size: int = Query(default=15, ge=1, le=50,
+                                                            description="每页数量，最大50"),
+                                     partition_type: int = Query(default=1,
+                                                                 description="分区类型，默认1"),
+                                     req_from: int = Query(default=2,
+                                                           description="请求来源，默认2")):
+    """
+    # [中文]
+    ### 用途:
+    - 获取指定直播标签/分区下正在直播的房间列表
+    ### 参数:
+    - partition: 标签/分区ID，例如彩虹六号为 1010402
+    - limit: 最多返回多少个房间，默认30，最大150
+    - offset: 起始偏移
+    - page_size: 每次请求数量
+    ### 返回:
+    - 房间列表
+    """
+    try:
+        rooms = []
+        current_offset = offset
+        while len(rooms) < limit:
+            count = min(page_size, limit - len(rooms))
+            data = await DouyinWebCrawler.fetch_live_partition_rooms(
+                partition=partition,
+                offset=current_offset,
+                count=count,
+                partition_type=partition_type,
+                req_from=req_from,
+            )
+            payload = data.get("data") if isinstance(data, dict) else {}
+            page_rooms = payload.get("data") if isinstance(payload, dict) else []
+            if not isinstance(page_rooms, list) or not page_rooms:
+                break
+            rooms.extend(page_rooms)
+            next_offset = payload.get("offset")
+            if next_offset is None or int(next_offset) <= current_offset:
+                current_offset += len(page_rooms)
+            else:
+                current_offset = int(next_offset)
+            if len(page_rooms) < count:
+                break
+        data = {
+            "partition": partition,
+            "partition_type": partition_type,
+            "offset": current_offset,
+            "count": len(rooms),
+            "limit": limit,
+            "data": rooms[:limit],
+        }
+        return ResponseModel(code=200, router=request.url.path, data=data)
+    except Exception as e:
+        status_code = 400
+        detail = ErrorResponseModel(code=status_code,
+                                    router=request.url.path,
+                                    params=dict(request.query_params),
+                                    )
+        raise HTTPException(status_code=status_code, detail=detail.dict())
+
+
+@router.get("/fetch_live_category_catalog",
+            response_model=ResponseModel,
+            summary="获取直播类型/分区/标签目录/Get live category catalog")
+async def fetch_live_category_catalog(request: Request,
+                                      category_id: str = Query(
+                                          default="4_103_1_1_1_1010402",
+                                          description="直播分类页ID/Live category page id")):
+    """
+    # [中文]
+    ### 用途:
+    - 从抖音直播分类页提取直播类型、分区和标签ID目录
+    ### 参数:
+    - category_id: 分类页ID，默认使用彩虹六号分类页以获取完整 categoryData
+    ### 返回:
+    - catalog: 直播类型 / 分区 / 标签树
+    """
+    try:
+        data = await DouyinWebCrawler.fetch_live_category_catalog(category_id=category_id)
+        return ResponseModel(code=200, router=request.url.path, data=data)
+    except Exception as e:
+        status_code = 400
+        detail = ErrorResponseModel(code=status_code,
+                                    router=request.url.path,
+                                    params=dict(request.query_params),
+                                    )
+        raise HTTPException(status_code=status_code, detail=detail.dict())
+
+
 # 获取直播间送礼用户排行榜
 @router.get("/fetch_live_gift_ranking",
             response_model=ResponseModel,

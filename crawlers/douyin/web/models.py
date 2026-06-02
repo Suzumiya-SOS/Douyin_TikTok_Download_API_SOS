@@ -232,6 +232,19 @@ class UserLive2(BaseLiveModel2):
     room_id: str
 
 
+class LivePartitionRooms(BaseLiveModel):
+    count: int = 15
+    offset: int = 0
+    partition: str = ""
+    partition_type: int = 1
+    req_from: int = 2
+    msToken: str = ""
+    browser_name: str = "Chrome"
+    browser_version: str = "130"
+    os_name: str = "Windows"
+    os_version: str = "10"
+
+
 class FollowUserLive(BaseRequestModel):
     scene: str = "aweme_pc_follow_top"
 

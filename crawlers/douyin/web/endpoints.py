@@ -105,6 +105,9 @@ class DouyinAPIEndpoints:
     # 直播信息接口2 (Live Info 2)
     LIVE_INFO_ROOM_ID = f"{LIVE_DOMAIN2}/webcast/room/reflow/info/"
 
+    # 直播分区房间列表 (Live partition room list)
+    LIVE_PARTITION_ROOMS = f"{LIVE_DOMAIN}/webcast/web/partition/detail/room/v2/"
+
     # 直播间送礼用户排行榜 (Live Gift Rank)
     LIVE_GIFT_RANK = f"{LIVE_DOMAIN}/webcast/ranklist/audience/"
 

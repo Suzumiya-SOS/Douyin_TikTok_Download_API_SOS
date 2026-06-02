@@ -34,6 +34,7 @@
 
 
 import asyncio  # 异步I/O
+import json  # JSON解析
 import os  # 系统操作
 import time  # 时间操作
 from urllib.parse import urlencode, quote  # URL编码
@@ -46,7 +47,7 @@ from crawlers.douyin.web.endpoints import DouyinAPIEndpoints
 from crawlers.douyin.web.models import (
     BaseRequestModel, LiveRoomRanking, PostComments,
     PostCommentsReply, PostDetail,
-    UserProfile, UserCollection, UserLike, UserLive,
+    UserProfile, UserCollection, UserLike, UserLive, LivePartitionRooms,
     UserLive2, UserMix, UserPost
 )
 # 抖音应用的工具类
@@ -307,6 +308,128 @@ class DouyinWebCrawler:
             )
             response = await crawler.fetch_get_json(endpoint)
         return response
+
+    # 获取直播分区房间列表
+    async def fetch_live_partition_rooms(
+        self,
+        partition: str = "",
+        offset: int = 0,
+        count: int = 15,
+        partition_type: int = 1,
+        req_from: int = 2,
+    ):
+        kwargs = await self.get_douyin_headers()
+        kwargs["headers"]["Referer"] = f"https://live.douyin.com/categorynew/4_103_1_1_1_{partition}"
+        base_crawler = BaseCrawler(proxies=kwargs["proxies"], crawler_headers=kwargs["headers"])
+        async with base_crawler as crawler:
+            params = LivePartitionRooms(
+                partition=partition,
+                offset=offset,
+                count=count,
+                partition_type=partition_type,
+                req_from=req_from,
+            )
+            params_dict = params.dict()
+            a_bogus = BogusManager.ab_model_2_endpoint(params_dict, kwargs["headers"]["User-Agent"])
+            endpoint = f"{DouyinAPIEndpoints.LIVE_PARTITION_ROOMS}?{urlencode(params_dict)}&a_bogus={a_bogus}"
+            response = await crawler.fetch_get_json(endpoint)
+        return response
+
+    # 获取直播类型 / 分区 / 标签目录
+    async def fetch_live_category_catalog(self, category_id: str = "4_103_1_1_1_1010402"):
+        kwargs = await self.get_douyin_headers()
+        endpoint = f"https://live.douyin.com/categorynew/{category_id}"
+        kwargs["headers"]["Referer"] = "https://live.douyin.com/"
+        base_crawler = BaseCrawler(proxies=kwargs["proxies"], crawler_headers=kwargs["headers"])
+        async with base_crawler as crawler:
+            response = await crawler.fetch_response(endpoint)
+        category_data = self._extract_live_category_data(response.text)
+        return {
+            "source": endpoint,
+            "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "catalog": self._normalize_live_category_catalog(category_data),
+        }
+
+    @staticmethod
+    def _extract_live_category_data(html: str) -> list:
+        marker = r'\"categoryData\":'
+        start = html.find(marker)
+        if start < 0:
+            raise ValueError("categoryData not found in Douyin Live page")
+        index = start + len(marker)
+        if index >= len(html) or html[index] != "[":
+            raise ValueError("categoryData marker is not followed by an array")
+
+        depth = 0
+        end = None
+        for pos in range(index, len(html)):
+            char = html[pos]
+            if char == "[":
+                depth += 1
+            elif char == "]":
+                depth -= 1
+                if depth == 0:
+                    end = pos + 1
+                    break
+        if end is None:
+            raise ValueError("categoryData array end not found")
+
+        raw = html[index:end]
+        return json.loads(raw.replace(r'\"', '"').replace(r"\\", "\\"))
+
+    @staticmethod
+    def _partition_info(node: dict) -> tuple[str, str, int | None]:
+        partition = node.get("partition") if isinstance(node, dict) else {}
+        if not isinstance(partition, dict):
+            partition = {}
+        return (
+            str(partition.get("id_str") or ""),
+            str(partition.get("title") or ""),
+            partition.get("type"),
+        )
+
+    @classmethod
+    def _normalize_live_category_catalog(cls, category_data: list) -> list:
+        catalog = []
+        for top in category_data:
+            top_id, top_title, top_type = cls._partition_info(top)
+            if not top_id or not top_title:
+                continue
+            sub_partitions = top.get("sub_partition") if isinstance(top, dict) else []
+            sub_partitions = sub_partitions if isinstance(sub_partitions, list) else []
+            if sub_partitions:
+                partitions = []
+                for group in sub_partitions:
+                    group_id, group_title, group_type = cls._partition_info(group)
+                    if not group_id or not group_title:
+                        continue
+                    tags = []
+                    group_tags = group.get("sub_partition") if isinstance(group, dict) else []
+                    group_tags = group_tags if isinstance(group_tags, list) else []
+                    for tag in group_tags:
+                        tag_id, tag_title, tag_type = cls._partition_info(tag)
+                        if tag_id and tag_title:
+                            tags.append({"id": tag_id, "label": tag_title, "type": tag_type})
+                    partitions.append({
+                        "id": group_id,
+                        "label": group_title,
+                        "type": group_type,
+                        "tags": tags,
+                    })
+            else:
+                partitions = [{
+                    "id": top_id,
+                    "label": top_title,
+                    "type": top_type,
+                    "tags": [],
+                }]
+            catalog.append({
+                "id": top_id,
+                "label": top_title,
+                "type": top_type,
+                "partitions": partitions,
+            })
+        return catalog
 
     # 获取直播间送礼用户排行榜
     async def fetch_live_gift_ranking(self, room_id: str, rank_type: int = 30):
